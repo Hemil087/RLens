@@ -1,6 +1,6 @@
 # RLens 🔬
 
-> A research-grade training analysis dashboard for Reinforcement Learning on the Gymnasium `Taxi-v3` environment.
+> A research-grade training analysis dashboard for Reinforcement Learning on the Gymnasium `Taxi-v4` environment.
 
 RLens lets you train RL agents, watch their policy evolve in real time, compare algorithms side by side, and replay learned behaviors as GIFs — all from a clean interactive dashboard.
 
@@ -32,7 +32,7 @@ comparable on equal footing, and makes the policy visualizations fully interpret
 ### Why no neural networks?
 
 REINFORCE and Actor-Critic are parameterized policy methods — they only require a
-*differentiable* policy representation. On a 500-state discrete environment like Taxi-v3,
+*differentiable* policy representation. On a 500-state discrete environment like Taxi-v4,
 a tabular softmax policy (`θ` table + softmax) satisfies this requirement exactly:
 
 - **Exact representation** — no approximation error
@@ -78,7 +78,7 @@ All hyperparameters are configurable from the UI before training starts.
 
 **Backend**
 - [FastAPI](https://fastapi.tiangolo.com/) — async framework, WebSocket support
-- [Gymnasium](https://gymnasium.farama.org/) — Taxi-v3 environment
+- [Gymnasium](https://gymnasium.farama.org/) — Taxi-v4 environment
 - [NumPy](https://numpy.org/) — all algorithm tables (Q, θ, V, W)
 - [imageio](https://imageio.readthedocs.io/) + [pygame](https://www.pygame.org/) — GIF generation from `rgb_array` frames
 
@@ -210,7 +210,7 @@ Frontend runs at `http://localhost:3000`.
 
 ## Environment
 
-**Gymnasium `Taxi-v3`**
+**Gymnasium `Taxi-v4`**
 - 5×5 grid world, 500 discrete states, 6 actions
 - 4 fixed locations: R (red), G (green), Y (yellow), B (blue)
 - Agent picks up a passenger from one location and drops them at another
@@ -290,6 +290,6 @@ A few behaviors worth looking for across algorithms on Taxi-v3:
 
 ## Acknowledgements
 
-Environment: [Gymnasium Taxi-v3](https://gymnasium.farama.org/environments/toy_text/taxi/) by Farama Foundation.
+Environment: [Gymnasium Taxi-v4](https://gymnasium.farama.org/environments/toy_text/taxi/) by Farama Foundation.
 
 Algorithm references: Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press. — [Free PDF](http://incompleteideas.net/book/the-book-2nd.html)
