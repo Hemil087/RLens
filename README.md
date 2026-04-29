@@ -101,7 +101,7 @@ rlens/
 │   ├── main.py
 │   ├── requirements.txt
 │   ├── core/
-│   │   ├── env_wrapper.py       # Taxi-v3 wrapper + decode utilities
+│   │   ├── env_wrapper.py       # Taxi-v4 wrapper + decode utilities
 │   │   ├── trainer.py           # Training loop + WebSocket streaming
 │   │   └── gif_generator.py     # Episode GIF generation via rgb_array
 │   ├── algorithms/
