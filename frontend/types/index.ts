@@ -16,6 +16,16 @@ export interface EpisodeUpdate {
   };
 }
 
+// Elements inside an `episode_batch` message. Identical shape to EpisodeUpdate
+// but without the per-message `type` tag (the batch wrapper carries the type).
+export type EpisodeEntry = Omit<EpisodeUpdate, "type">;
+
+// New P1 protocol: episodes are streamed in batches to reduce WS overhead.
+export interface EpisodeBatch {
+  type: "episode_batch";
+  episodes: EpisodeEntry[];
+}
+
 export interface Checkpoint {
   type: "checkpoint";
   episode: number;
@@ -36,20 +46,4 @@ export interface PolicySnapshot {
   greedy_policy: number[];
   action_probs?: number[][];
   state_values?: number[];
-}
-
-export interface AlgorithmParam {
-  name: string;
-  label: string;
-  min: number;
-  max: number;
-  default: number;
-  step: number;
-}
-
-export interface AlgorithmMeta {
-  id: AlgorithmType;
-  name: string;
-  description: string;
-  params: AlgorithmParam[];
 }

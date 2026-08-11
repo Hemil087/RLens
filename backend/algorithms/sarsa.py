@@ -54,7 +54,7 @@ class SARSAAgent(BaseAgent):
     def get_policy_snapshot(self) -> dict:
         return {
             "type": "q_table",
-            "q_table": self.Q.tolist(),
+            "q_table": np.round(self.Q, 4).tolist(),
             "greedy_policy": np.argmax(self.Q, axis=1).tolist(),
         }
 

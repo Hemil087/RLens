@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { EpisodeUpdate, Checkpoint, TrainingComplete, AlgorithmType, TrainingStatus } from "@/types";
+import type {
+  EpisodeUpdate,
+  EpisodeEntry,
+  Checkpoint,
+  TrainingComplete,
+  AlgorithmType,
+  TrainingStatus,
+} from "@/types";
 
 export interface RunState {
   status: TrainingStatus;
@@ -29,6 +36,7 @@ interface CompareStore {
   setAlgorithm: (target: "A" | "B", alg: AlgorithmType) => void;
   setParams: (target: "A" | "B", params: Record<string, number>) => void;
   appendEpisode: (target: "A" | "B", ep: EpisodeUpdate) => void;
+  appendEpisodeBatch: (target: "A" | "B", eps: EpisodeEntry[]) => void;
   appendCheckpoint: (target: "A" | "B", cp: Checkpoint) => void;
   setStatus: (target: "A" | "B", s: TrainingStatus) => void;
   setFinalStats: (target: "A" | "B", stats: TrainingComplete) => void;
@@ -56,6 +64,16 @@ export const useCompareStore = create<CompareStore>((set) => ({
   setParams: (t, params) => set((s) => updateRun(s, t, () => ({ params }))),
   appendEpisode: (t, ep) =>
     set((s) => updateRun(s, t, (r) => ({ episodeHistory: [...r.episodeHistory, ep] }))),
+  // P1 batch consumer — one set() per batch. See trainingStore for rationale.
+  appendEpisodeBatch: (t, eps) =>
+    set((s) =>
+      updateRun(s, t, (r) => ({
+        episodeHistory: [
+          ...r.episodeHistory,
+          ...eps.map((e) => ({ ...e, type: "episode_update" as const })),
+        ],
+      }))
+    ),
   appendCheckpoint: (t, cp) =>
     set((s) =>
       updateRun(s, t, (r) => ({

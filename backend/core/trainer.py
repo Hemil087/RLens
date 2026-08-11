@@ -9,6 +9,13 @@ from core.env_wrapper import make_env
 from utils.stats import RollingAverage
 
 
+# Episodes buffered before flushing a single `episode_batch` WS message.
+# Set high enough that per-episode overhead is negligible; low enough that the
+# live chart still feels live (25 eps × ~50 eps/sec on tabular ≈ 2 flushes/sec).
+# Do not silently regress this to 1 — it will restore the pre-P1 send bottleneck.
+BATCH_SIZE = 25
+
+
 ALGORITHM_REGISTRY: dict[str, type[BaseAgent]] = {
     "q_learning": QLearningAgent,
     "sarsa": SARSAAgent,
@@ -48,6 +55,23 @@ async def run_training(
 
     def training_loop():
         nonlocal convergence_episode
+
+        # Episode messages are buffered and flushed as `episode_batch` messages.
+        # This collapses ~n_episodes per-episode sends into ~n_episodes/BATCH_SIZE
+        # batch sends and — more importantly — removes the per-episode
+        # `.result()` round-trip that used to gate training throughput.
+        episode_batch: list[dict] = []
+
+        def flush_episode_batch():
+            if not episode_batch:
+                return
+            msg = {"type": "episode_batch", "episodes": episode_batch.copy()}
+            episode_batch.clear()
+            # Fire-and-forget. `run_coroutine_threadsafe` schedules onto the
+            # event loop in call order, and Starlette's WebSocket serializes
+            # sends internally, so message order is preserved.
+            asyncio.run_coroutine_threadsafe(send(msg), loop)
+
         for episode in range(n_episodes):
             if cancelled_flag[0]:
                 break
@@ -86,8 +110,8 @@ async def run_training(
                 extra_metrics["td_error"] = float(sum(episode_td_errors) / len(episode_td_errors))
             extra_metrics.update({k: v for k, v in episode_extra.items() if k not in extra_metrics})
 
-            episode_msg = {
-                "type": "episode_update",
+            # Per-episode entry — note: NO "type" field. The batch wrapper carries it.
+            entry = {
                 "episode": episode + 1,
                 "reward": total_reward,
                 "steps": steps,
@@ -95,23 +119,35 @@ async def run_training(
                 "extra_metrics": extra_metrics,
             }
             if epsilon is not None:
-                episode_msg["epsilon"] = round(epsilon, 4)
+                entry["epsilon"] = round(epsilon, 4)
 
-            asyncio.run_coroutine_threadsafe(send(episode_msg), loop).result()
+            episode_batch.append(entry)
 
             if convergence_episode is None and avg_reward >= convergence_threshold and episode >= 99:
                 convergence_episode = episode + 1
 
+            if len(episode_batch) >= BATCH_SIZE:
+                flush_episode_batch()
+
             if (episode + 1) % checkpoint_every == 0:
+                # Force-flush pending episodes so a checkpoint tick never
+                # arrives on the frontend ahead of the episode it belongs to.
+                flush_episode_batch()
                 snapshot = agent.get_policy_snapshot()
                 checkpoint_msg = {
                     "type": "checkpoint",
                     "episode": episode + 1,
                     "policy_snapshot": snapshot,
                 }
-                asyncio.run_coroutine_threadsafe(send(checkpoint_msg), loop).result()
+                asyncio.run_coroutine_threadsafe(send(checkpoint_msg), loop)
 
-        final_avg = sum(rewards_history[-100:]) / min(len(rewards_history), 100)
+        # Flush any remaining episodes before the completion message.
+        flush_episode_batch()
+
+        final_avg = (
+            sum(rewards_history[-100:]) / min(len(rewards_history), 100)
+            if rewards_history else 0.0
+        )
         all_checkpoints = list(range(checkpoint_every, n_episodes + 1, checkpoint_every))
         complete_msg = {
             "type": "training_complete",
@@ -120,6 +156,11 @@ async def run_training(
             "convergence_episode": convergence_episode,
             "all_checkpoints": all_checkpoints,
         }
+        # Block on the final message: the training thread must not exit until
+        # all queued sends (batches, checkpoints, complete) have actually been
+        # written to the websocket. Since sends are FIFO-ordered on the loop
+        # and Starlette serializes them, awaiting the last one implies all
+        # earlier ones have flushed.
         asyncio.run_coroutine_threadsafe(send(complete_msg), loop).result()
         env.close()
 

@@ -41,11 +41,12 @@ class QLearningAgent(BaseAgent):
         self._decay_epsilon()
 
     def get_policy_snapshot(self) -> dict:
-        greedy_policy = np.argmax(self.Q, axis=1).tolist()
+        # 4-decimal precision is plenty for visualization and cuts JSON payload
+        # roughly in half (60KB -> 27KB) vs full float64 string precision.
         return {
             "type": "q_table",
-            "q_table": self.Q.tolist(),
-            "greedy_policy": greedy_policy,
+            "q_table": np.round(self.Q, 4).tolist(),
+            "greedy_policy": np.argmax(self.Q, axis=1).tolist(),
         }
 
     def get_config(self) -> dict:

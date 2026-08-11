@@ -26,7 +26,10 @@ export function useTrainingSocket() {
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
-        if (msg.type === "episode_update") store.appendEpisode(msg);
+        // P1 protocol: episodes arrive in batches. Kept the single-episode
+        // branch too for backward-compat during rollout / manual testing.
+        if (msg.type === "episode_batch") store.appendEpisodeBatch(msg.episodes);
+        else if (msg.type === "episode_update") store.appendEpisode(msg);
         else if (msg.type === "checkpoint") store.appendCheckpoint(msg);
         else if (msg.type === "training_complete") {
           store.setFinalStats(msg);

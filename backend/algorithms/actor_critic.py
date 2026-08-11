@@ -8,6 +8,13 @@ def softmax(x: np.ndarray) -> np.ndarray:
     return e / e.sum()
 
 
+def softmax_rows(mat: np.ndarray) -> np.ndarray:
+    """Numerically stable softmax over rows of a 2D array (vectorized)."""
+    shifted = mat - mat.max(axis=1, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / exp.sum(axis=1, keepdims=True)
+
+
 class ActorCriticAgent(BaseAgent):
     def __init__(
         self,
@@ -104,13 +111,15 @@ class ActorCriticAgent(BaseAgent):
         return result
 
     def get_policy_snapshot(self) -> dict:
-        action_probs = np.array([softmax(self.theta[s]) for s in range(500)])
+        # Vectorized softmax over all 500 states in one pass (was a Python loop).
+        action_probs = softmax_rows(self.theta)
+        # Drop `theta` from the payload — pre-softmax logits are never consumed
+        # by the frontend, and duplicating them nearly doubles the JSON size.
         return {
             "type": "tabular_policy",
-            "theta": self.theta.tolist(),
-            "action_probs": action_probs.tolist(),
+            "action_probs":  np.round(action_probs, 4).tolist(),
             "greedy_policy": action_probs.argmax(axis=1).tolist(),
-            "state_values": self.V.tolist(),
+            "state_values":  np.round(self.V, 4).tolist(),
         }
 
     def get_config(self) -> dict:

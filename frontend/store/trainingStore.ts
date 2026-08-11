@@ -3,6 +3,7 @@ import type {
   AlgorithmType,
   TrainingStatus,
   EpisodeUpdate,
+  EpisodeEntry,
   Checkpoint,
   TrainingComplete,
 } from "@/types";
@@ -21,6 +22,7 @@ interface TrainingStore {
   setParam: (key: string, value: number) => void;
   setParams: (params: Record<string, number>) => void;
   appendEpisode: (ep: EpisodeUpdate) => void;
+  appendEpisodeBatch: (eps: EpisodeEntry[]) => void;
   appendCheckpoint: (cp: Checkpoint) => void;
   setStatus: (s: TrainingStatus) => void;
   setIsConnected: (v: boolean) => void;
@@ -53,6 +55,16 @@ export const useTrainingStore = create<TrainingStore>((set) => ({
   setParams: (params) => set({ params }),
   appendEpisode: (ep) =>
     set((s) => ({ episodeHistory: [...s.episodeHistory, ep] })),
+  // P1 batch consumer — one set() per batch instead of one per episode. The
+  // real chart/selector refactor happens in P2; this is just the minimal
+  // adapter so the app keeps working with the new `episode_batch` protocol.
+  appendEpisodeBatch: (eps) =>
+    set((s) => ({
+      episodeHistory: [
+        ...s.episodeHistory,
+        ...eps.map((e) => ({ ...e, type: "episode_update" as const })),
+      ],
+    })),
   appendCheckpoint: (cp) =>
     set((s) => ({
       checkpoints: [...s.checkpoints, cp],

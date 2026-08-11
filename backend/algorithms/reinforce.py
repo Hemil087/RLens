@@ -8,6 +8,13 @@ def softmax(x: np.ndarray) -> np.ndarray:
     return e / e.sum()
 
 
+def softmax_rows(mat: np.ndarray) -> np.ndarray:
+    """Numerically stable softmax over rows of a 2D array (vectorized)."""
+    shifted = mat - mat.max(axis=1, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / exp.sum(axis=1, keepdims=True)
+
+
 class REINFORCEAgent(BaseAgent):
     def __init__(
         self,
@@ -119,13 +126,17 @@ class REINFORCEAgent(BaseAgent):
         }
 
     def get_policy_snapshot(self) -> dict:
-        action_probs = np.array([softmax(self.theta[s]) for s in range(500)])
+        # Vectorized softmax over all 500 states in one pass (was a Python loop).
+        action_probs = softmax_rows(self.theta)
+        # Drop `theta` from the payload — it's just pre-softmax logits, and the
+        # frontend only ever reads action_probs / greedy_policy / state_values.
+        # If you later need theta for offline analysis, expose it via a REST
+        # endpoint rather than paying for it on every checkpoint.
         return {
             "type": "tabular_policy",
-            "theta":         self.theta.tolist(),
-            "action_probs":  action_probs.tolist(),
+            "action_probs":  np.round(action_probs, 4).tolist(),
             "greedy_policy": action_probs.argmax(axis=1).tolist(),
-            "state_values":  self.W.tolist(),
+            "state_values":  np.round(self.W, 4).tolist(),
         }
 
     def get_config(self) -> dict:
