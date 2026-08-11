@@ -4,16 +4,21 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { useTrainingStore } from "@/store/trainingStore";
+import { stride, MAX_DISPLAY_POINTS } from "@/lib/chart-utils";
 
 export function EpsilonDecayChart() {
-  const { episodeHistory, algorithm } = useTrainingStore();
+  // P3 (P2 followup): narrow selectors + read pre-shaped chartData instead
+  // of raw episodeHistory. Same treatment as RewardCurve / MetricsChart.
+  const chartData = useTrainingStore((s) => s.chartData);
+  const algorithm = useTrainingStore((s) => s.algorithm);
   const isTabular = algorithm === "q_learning" || algorithm === "sarsa";
 
   const data = useMemo(() => {
-    return episodeHistory
-      .filter((e) => e.epsilon !== undefined && e.episode % 10 === 0)
-      .map((e) => ({ episode: e.episode, epsilon: e.epsilon }));
-  }, [episodeHistory]);
+    if (!isTabular) return [];
+    // Only tabular methods emit epsilon. Filter out undefined then downsample.
+    const filtered = chartData.filter((p) => p.epsilon !== undefined);
+    return stride(filtered, MAX_DISPLAY_POINTS);
+  }, [chartData, isTabular]);
 
   if (!isTabular || data.length === 0) return null;
 

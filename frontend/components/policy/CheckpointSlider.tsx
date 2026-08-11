@@ -2,7 +2,14 @@
 import { useTrainingStore } from "@/store/trainingStore";
 
 export function CheckpointSlider() {
-  const { checkpoints, selectedCheckpointIdx, setSelectedCheckpointIdx } = useTrainingStore();
+  // P3 (P2 followup): narrow selectors. Previously destructured the whole
+  // store, so this slider re-rendered on every episode batch even though its
+  // content only depends on checkpoints + selectedCheckpointIdx.
+  const checkpoints = useTrainingStore((s) => s.checkpoints);
+  const selectedCheckpointIdx = useTrainingStore((s) => s.selectedCheckpointIdx);
+  const setSelectedCheckpointIdx = useTrainingStore(
+    (s) => s.setSelectedCheckpointIdx
+  );
 
   if (checkpoints.length === 0) return null;
 

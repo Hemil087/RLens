@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
 import { useTrainingStore } from "@/store/trainingStore";
 import {
   DEST_POSITIONS, ACTION_SYMBOLS, LOCATION_COLORS,
@@ -15,10 +15,20 @@ interface Props {
   highlightDiff?: boolean[][];
 }
 
-export function PolicyArrows({ snapshot, highlightDiff }: Props) {
-  // P2: narrow selector — read only the currently-selected snapshot, not the
-  // whole store. When the parent passes `snapshot` explicitly (compare page),
-  // we use that; otherwise fall back to the store-selected checkpoint.
+// P3-2: precomputed once per (snapshot, filter) change, not once per render.
+// Also decouples the render loop from the aggregation math so the JSX below
+// is a straight iteration with no per-cell function calls.
+interface CellData {
+  row: number;
+  col: number;
+  states: number[];
+  action: number;
+  uncertainty: number;
+  intensity: number;
+  locIdx: number;
+}
+
+function PolicyArrowsInner({ snapshot, highlightDiff }: Props) {
   const storeSnapshot = useTrainingStore(
     (s) => s.checkpoints[s.selectedCheckpointIdx]?.policy_snapshot
   );
@@ -28,9 +38,7 @@ export function PolicyArrows({ snapshot, highlightDiff }: Props) {
   const [destFilter, setDestFilter] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ row: number; col: number } | null>(null);
 
-  // P2: compute q-table min/max ONCE per snapshot, not once per cell per
-  // render. Was previously computing `Math.min(...q.flat())` twice per cell
-  // (50 cells) inside getMaxQ — 100 spread calls of ~3000 args, every render.
+  // Range for coloring — computed once per snapshot, not per cell per render.
   const qRange = useMemo(() => {
     if (!active || active.type !== "q_table" || !active.q_table) return null;
     let mn = Infinity;
@@ -44,25 +52,44 @@ export function PolicyArrows({ snapshot, highlightDiff }: Props) {
     return { min: mn, max: mx };
   }, [active]);
 
-  if (!active) return (
+  // The full 5×5 grid's per-cell data. Runs on snapshot / filter change only.
+  // Hover state changes do NOT re-run this — they just re-render the JSX
+  // which reads pre-computed values.
+  const cells = useMemo<CellData[] | null>(() => {
+    if (!active) return null;
+    const isQTable = active.type === "q_table";
+    const range = qRange ? qRange.max - qRange.min : 1;
+    const out: CellData[] = [];
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 5; col++) {
+        const states = getStatesForCell(row, col, passFilter, destFilter);
+        const { action, uncertainty } = getModeAction(active.greedy_policy, states);
+
+        let intensity = 0.15;
+        if (isQTable && active.q_table && qRange && range > 0) {
+          let cellMax = -Infinity;
+          for (const s of states) {
+            for (const v of active.q_table[s]) {
+              if (v > cellMax) cellMax = v;
+            }
+          }
+          intensity = (cellMax - qRange.min) / range;
+        }
+
+        const locIdx = DEST_POSITIONS.findIndex(([r, c]) => r === row && c === col);
+        out.push({ row, col, states, action, uncertainty, intensity, locIdx });
+      }
+    }
+    return out;
+  }, [active, passFilter, destFilter, qRange]);
+
+  if (!active || !cells) return (
     <div className="text-gray-600 text-xs text-center py-8">
       Train to see policy visualization
     </div>
   );
 
   const isQTable = active.type === "q_table";
-
-  const getMaxQ = (states: number[]) => {
-    if (!isQTable || !active.q_table || !qRange) return 0;
-    let cellMax = -Infinity;
-    for (const s of states) {
-      for (const v of active.q_table[s]) {
-        if (v > cellMax) cellMax = v;
-      }
-    }
-    const range = qRange.max - qRange.min;
-    return range === 0 ? 0 : (cellMax - qRange.min) / range;
-  };
 
   return (
     <div className="space-y-3">
@@ -93,76 +120,73 @@ export function PolicyArrows({ snapshot, highlightDiff }: Props) {
       </div>
 
       <svg width={5 * CELL} height={5 * CELL} className="rounded overflow-hidden">
-        {Array.from({ length: 5 }, (_, row) =>
-          Array.from({ length: 5 }, (_, col) => {
-            const states = getStatesForCell(row, col, passFilter, destFilter);
-            const { action, uncertainty } = getModeAction(active.greedy_policy, states);
-            const intensity = isQTable ? getMaxQ(states) : 0.15;
-            const isDiff = highlightDiff?.[row]?.[col];
+        {cells.map(({ row, col, states, action, uncertainty, intensity, locIdx }) => {
+          const isDiff = highlightDiff?.[row]?.[col];
+          const bgColor = isDiff
+            ? "rgba(239,68,68,0.25)"
+            : `rgba(99,102,241,${0.05 + intensity * 0.3})`;
+          const isHovered = tooltip?.row === row && tooltip?.col === col;
 
-            const locIdx = DEST_POSITIONS.findIndex(([r, c]) => r === row && c === col);
-            const bgColor = isDiff
-              ? "rgba(239,68,68,0.25)"
-              : `rgba(99,102,241,${0.05 + intensity * 0.3})`;
-
-            const isHovered = tooltip?.row === row && tooltip?.col === col;
-
-            return (
-              <g key={`${row}-${col}`}
-                onMouseEnter={() => setTooltip({ row, col })}
-                onMouseLeave={() => setTooltip(null)}
-              >
+          return (
+            <g key={`${row}-${col}`}
+              onMouseEnter={() => setTooltip({ row, col })}
+              onMouseLeave={() => setTooltip(null)}
+            >
+              <rect
+                x={col * CELL} y={row * CELL}
+                width={CELL} height={CELL}
+                fill={bgColor}
+                stroke="#1f2937" strokeWidth={1}
+              />
+              {locIdx >= 0 && (
                 <rect
-                  x={col * CELL} y={row * CELL}
-                  width={CELL} height={CELL}
-                  fill={bgColor}
-                  stroke="#1f2937" strokeWidth={1}
+                  x={col * CELL + 2} y={row * CELL + 2}
+                  width={CELL - 4} height={CELL - 4}
+                  fill="none"
+                  stroke={LOCATION_COLORS[locIdx]}
+                  strokeWidth={2} rx={3}
                 />
-                {locIdx >= 0 && (
-                  <rect
-                    x={col * CELL + 2} y={row * CELL + 2}
-                    width={CELL - 4} height={CELL - 4}
-                    fill="none"
-                    stroke={LOCATION_COLORS[locIdx]}
-                    strokeWidth={2} rx={3}
-                  />
-                )}
+              )}
+              <text
+                x={col * CELL + CELL / 2}
+                y={row * CELL + CELL / 2 + 6}
+                textAnchor="middle"
+                fontSize={22}
+                fill={uncertainty > 0.5 ? "#6b7280" : "#e5e7eb"}
+              >
+                {ACTION_SYMBOLS[action]}
+              </text>
+              {locIdx >= 0 && (
                 <text
-                  x={col * CELL + CELL / 2}
-                  y={row * CELL + CELL / 2 + 6}
-                  textAnchor="middle"
-                  fontSize={22}
-                  fill={uncertainty > 0.5 ? "#6b7280" : "#e5e7eb"}
+                  x={col * CELL + 8} y={row * CELL + 14}
+                  fontSize={10} fill={LOCATION_COLORS[locIdx]} fontWeight="bold"
                 >
-                  {ACTION_SYMBOLS[action]}
+                  {LOC_NAMES[locIdx]}
                 </text>
-                {locIdx >= 0 && (
+              )}
+              {isHovered && isQTable && active.q_table && states.length > 0 && (
+                <g>
+                  <rect x={col * CELL} y={row * CELL + CELL - 18}
+                    width={CELL} height={18} fill="rgba(17,17,24,0.92)" rx={0} />
                   <text
-                    x={col * CELL + 8} y={row * CELL + 14}
-                    fontSize={10} fill={LOCATION_COLORS[locIdx]} fontWeight="bold"
+                    x={col * CELL + CELL / 2} y={row * CELL + CELL - 5}
+                    textAnchor="middle" fontSize={7} fill="#9ca3af"
                   >
-                    {LOC_NAMES[locIdx]}
+                    {["S","N","E","W","Pu","Do"].map((n, i) =>
+                      `${n}:${active.q_table![states[0]]?.[i]?.toFixed(1) ?? "-"}`
+                    ).join(" ")}
                   </text>
-                )}
-                {isHovered && isQTable && active.q_table && states.length > 0 && (
-                  <g>
-                    <rect x={col * CELL} y={row * CELL + CELL - 18}
-                      width={CELL} height={18} fill="rgba(17,17,24,0.92)" rx={0} />
-                    <text
-                      x={col * CELL + CELL / 2} y={row * CELL + CELL - 5}
-                      textAnchor="middle" fontSize={7} fill="#9ca3af"
-                    >
-                      {["S","N","E","W","Pu","Do"].map((n, i) =>
-                        `${n}:${active.q_table![states[0]]?.[i]?.toFixed(1) ?? "-"}`
-                      ).join(" ")}
-                    </text>
-                  </g>
-                )}
-              </g>
-            );
-          })
-        )}
+                </g>
+              )}
+            </g>
+          );
+        })}
       </svg>
     </div>
   );
 }
+
+// P3-2: React.memo lets the compare page skip re-renders when parent
+// re-renders but neither `snapshot` (referentially stable per checkpoint)
+// nor `highlightDiff` (memoized in the compare page) has changed.
+export const PolicyArrows = memo(PolicyArrowsInner);
