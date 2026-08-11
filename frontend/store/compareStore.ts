@@ -2,18 +2,33 @@ import { create } from "zustand";
 import type {
   EpisodeUpdate,
   EpisodeEntry,
+  ChartPoint,
   Checkpoint,
   TrainingComplete,
   AlgorithmType,
   TrainingStatus,
 } from "@/types";
 
+function toChartPoint(e: EpisodeEntry | EpisodeUpdate): ChartPoint {
+  return {
+    episode: e.episode,
+    reward: e.reward,
+    rollingAvg: e.rolling_avg_reward,
+    td_error: e.extra_metrics?.td_error,
+    policy_loss: e.extra_metrics?.policy_loss,
+    value_loss: e.extra_metrics?.value_loss,
+    epsilon: e.epsilon,
+  };
+}
+
 export interface RunState {
   status: TrainingStatus;
   algorithm: AlgorithmType;
   params: Record<string, number>;
   episodeHistory: EpisodeUpdate[];
+  chartData: ChartPoint[];
   checkpoints: Checkpoint[];
+  checkpointEpisodes: number[];
   selectedCheckpointIdx: number;
   finalStats: TrainingComplete | null;
 }
@@ -23,7 +38,9 @@ const defaultRun = (): RunState => ({
   algorithm: "q_learning",
   params: { alpha: 0.1, gamma: 0.99, epsilon_end: 0.01, n_episodes: 3000, checkpoint_every: 100 },
   episodeHistory: [],
+  chartData: [],
   checkpoints: [],
+  checkpointEpisodes: [],
   selectedCheckpointIdx: -1,
   finalStats: null,
 });
@@ -62,9 +79,15 @@ export const useCompareStore = create<CompareStore>((set) => ({
 
   setAlgorithm: (t, alg) => set((s) => updateRun(s, t, () => ({ algorithm: alg }))),
   setParams: (t, params) => set((s) => updateRun(s, t, () => ({ params }))),
+
   appendEpisode: (t, ep) =>
-    set((s) => updateRun(s, t, (r) => ({ episodeHistory: [...r.episodeHistory, ep] }))),
-  // P1 batch consumer — one set() per batch. See trainingStore for rationale.
+    set((s) =>
+      updateRun(s, t, (r) => ({
+        episodeHistory: [...r.episodeHistory, ep],
+        chartData: [...r.chartData, toChartPoint(ep)],
+      }))
+    ),
+
   appendEpisodeBatch: (t, eps) =>
     set((s) =>
       updateRun(s, t, (r) => ({
@@ -72,15 +95,19 @@ export const useCompareStore = create<CompareStore>((set) => ({
           ...r.episodeHistory,
           ...eps.map((e) => ({ ...e, type: "episode_update" as const })),
         ],
+        chartData: [...r.chartData, ...eps.map(toChartPoint)],
       }))
     ),
+
   appendCheckpoint: (t, cp) =>
     set((s) =>
       updateRun(s, t, (r) => ({
         checkpoints: [...r.checkpoints, cp],
+        checkpointEpisodes: [...r.checkpointEpisodes, cp.episode],
         selectedCheckpointIdx: r.checkpoints.length,
       }))
     ),
+
   setStatus: (t, status) => set((s) => updateRun(s, t, () => ({ status }))),
   setFinalStats: (t, finalStats) => set((s) => updateRun(s, t, () => ({ finalStats }))),
   setSelectedCheckpointIdx: (t, idx) =>
@@ -92,7 +119,9 @@ export const useCompareStore = create<CompareStore>((set) => ({
       updateRun(s, t, () => ({
         status: "idle",
         episodeHistory: [],
+        chartData: [],
         checkpoints: [],
+        checkpointEpisodes: [],
         selectedCheckpointIdx: -1,
         finalStats: null,
       }))

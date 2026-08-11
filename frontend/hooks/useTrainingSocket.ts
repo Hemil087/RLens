@@ -6,28 +6,30 @@ import type { AlgorithmType } from "@/types";
 // Module-level ref so every call to useTrainingSocket shares the same WebSocket
 const wsRef = { current: null as WebSocket | null };
 
+// P2: this hook doesn't render anything derived from state, so it should not
+// subscribe to the store at all. Reading via `getState()` inside handlers
+// keeps `startTraining` / `stopTraining` referentially stable across renders.
 export function useTrainingSocket() {
-  const store = useTrainingStore();
-
   const startTraining = useCallback(
     (algorithm: AlgorithmType, params: Record<string, number>) => {
+      const s = useTrainingStore.getState();
+
       if (wsRef.current) wsRef.current.close();
 
-      store.reset();
-      store.setStatus("training");
+      s.reset();
+      s.setStatus("training");
 
       const ws = new WebSocket("ws://localhost:8000/ws/train");
       wsRef.current = ws;
 
       ws.onopen = () => {
-        store.setIsConnected(true);
+        useTrainingStore.getState().setIsConnected(true);
         ws.send(JSON.stringify({ type: "start_training", algorithm, params }));
       };
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
-        // P1 protocol: episodes arrive in batches. Kept the single-episode
-        // branch too for backward-compat during rollout / manual testing.
+        const store = useTrainingStore.getState();
         if (msg.type === "episode_batch") store.appendEpisodeBatch(msg.episodes);
         else if (msg.type === "episode_update") store.appendEpisode(msg);
         else if (msg.type === "checkpoint") store.appendCheckpoint(msg);
@@ -39,22 +41,24 @@ export function useTrainingSocket() {
       };
 
       ws.onerror = () => {
+        const store = useTrainingStore.getState();
         store.setStatus("error");
         store.setIsConnected(false);
       };
 
-      ws.onclose = () => store.setIsConnected(false);
+      ws.onclose = () => useTrainingStore.getState().setIsConnected(false);
     },
-    [store]
+    [] // empty deps — actions are stable on the store
   );
 
   const stopTraining = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "cancel" }));
     }
-    store.setStatus("idle");
-    store.setIsConnected(false);
-  }, [store]);
+    const s = useTrainingStore.getState();
+    s.setStatus("idle");
+    s.setIsConnected(false);
+  }, []);
 
   return { startTraining, stopTraining };
 }

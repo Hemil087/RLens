@@ -5,21 +5,20 @@ import {
   ResponsiveContainer, Legend,
 } from "recharts";
 import { useTrainingStore } from "@/store/trainingStore";
+import { displaySeries } from "@/lib/chart-utils";
 
 export function MetricsChart() {
-  const { episodeHistory, algorithm } = useTrainingStore();
+  // P2: narrow selectors — this component re-renders only when chart data
+  // grows or when the user swaps algorithm. It ignores checkpoints,
+  // policy-viz interactions, and connection state.
+  const chartData = useTrainingStore((s) => s.chartData);
+  const algorithm = useTrainingStore((s) => s.algorithm);
   const isTabular = algorithm === "q_learning" || algorithm === "sarsa";
 
-  const data = useMemo(() => {
-    return episodeHistory
-      .filter((_, i) => i % 5 === 0)
-      .map((e) => ({
-        episode: e.episode,
-        td_error: e.extra_metrics?.td_error ?? null,
-        policy_loss: e.extra_metrics?.policy_loss ?? null,
-        value_loss: e.extra_metrics?.value_loss ?? null,
-      }));
-  }, [episodeHistory]);
+  // ChartPoint already has td_error / policy_loss / value_loss on it. Recharts
+  // just picks the ones we ask for via dataKey. Downsample identically to the
+  // reward curve so the two charts stay visually aligned on the x-axis.
+  const data = useMemo(() => displaySeries(chartData), [chartData]);
 
   if (data.length === 0) return (
     <div className="flex flex-col items-center justify-center h-32 text-gray-600 text-xs gap-1">

@@ -12,19 +12,40 @@ function qToColor(norm: number) {
 }
 
 export function QTableHeatmap() {
-  const store = useTrainingStore();
+  // P2: narrow selector — subscribe only to the currently-selected snapshot.
+  // This component now stays completely silent during live training and only
+  // re-renders when the user picks a different checkpoint. Previously it was
+  // re-rendering on every episode batch and re-diffing 3000 SVG rects.
+  const snapshot = useTrainingStore(
+    (s) => s.checkpoints[s.selectedCheckpointIdx]?.policy_snapshot
+  );
+
+  // P2 bugfix: all hooks must run before any conditional early return.
+  // The pre-P2 version placed useMemo AFTER `if (!snapshot) return null`,
+  // which triggers React's hooks-order violation the first time a snapshot
+  // arrives (hook count goes 1 -> 2). Moving useMemo above the guard fixes it.
   const [selectedAction, setSelectedAction] = useState<number | null>(null);
 
-  const snapshot = store.checkpoints[store.selectedCheckpointIdx]?.policy_snapshot;
+  const { min, max } = useMemo(() => {
+    if (!snapshot || snapshot.type !== "q_table" || !snapshot.q_table) {
+      return { min: 0, max: 1 };
+    }
+    // Also swap the Math.min(...q.flat()) spread (6000-arg call) for a
+    // straight loop — smaller stack pressure, same result.
+    let mn = Infinity;
+    let mx = -Infinity;
+    for (const row of snapshot.q_table) {
+      for (const v of row) {
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+    }
+    return { min: mn, max: mx };
+  }, [snapshot]);
+
   if (!snapshot || snapshot.type !== "q_table" || !snapshot.q_table) return null;
 
   const q = snapshot.q_table;
-
-  const { min, max } = useMemo(() => {
-    const flat = q.flat();
-    return { min: Math.min(...flat), max: Math.max(...flat) };
-  }, [q]);
-
   const range = max - min || 1;
   const actions = selectedAction !== null ? [selectedAction] : [0, 1, 2, 3, 4, 5];
 
@@ -46,10 +67,7 @@ export function QTableHeatmap() {
         ))}
       </div>
       <div className="overflow-auto max-h-64">
-        <svg
-          width={actions.length * CELL_W}
-          height={500 * CELL_H}
-        >
+        <svg width={actions.length * CELL_W} height={500 * CELL_H}>
           {q.map((row, stateIdx) =>
             actions.map((actionIdx, colIdx) => {
               const norm = (row[actionIdx] - min) / range;

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTrainingStore } from "@/store/trainingStore";
 import {
   DEST_POSITIONS, ACTION_SYMBOLS, LOCATION_COLORS,
@@ -16,12 +16,34 @@ interface Props {
 }
 
 export function PolicyArrows({ snapshot, highlightDiff }: Props) {
-  const store = useTrainingStore();
+  // P2: narrow selector — read only the currently-selected snapshot, not the
+  // whole store. When the parent passes `snapshot` explicitly (compare page),
+  // we use that; otherwise fall back to the store-selected checkpoint.
+  const storeSnapshot = useTrainingStore(
+    (s) => s.checkpoints[s.selectedCheckpointIdx]?.policy_snapshot
+  );
+  const active = snapshot ?? storeSnapshot;
+
   const [passFilter, setPassFilter] = useState<number | null>(null);
   const [destFilter, setDestFilter] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ row: number; col: number } | null>(null);
 
-  const active = snapshot ?? store.checkpoints[store.selectedCheckpointIdx]?.policy_snapshot;
+  // P2: compute q-table min/max ONCE per snapshot, not once per cell per
+  // render. Was previously computing `Math.min(...q.flat())` twice per cell
+  // (50 cells) inside getMaxQ — 100 spread calls of ~3000 args, every render.
+  const qRange = useMemo(() => {
+    if (!active || active.type !== "q_table" || !active.q_table) return null;
+    let mn = Infinity;
+    let mx = -Infinity;
+    for (const row of active.q_table) {
+      for (const v of row) {
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+    }
+    return { min: mn, max: mx };
+  }, [active]);
+
   if (!active) return (
     <div className="text-gray-600 text-xs text-center py-8">
       Train to see policy visualization
@@ -31,12 +53,15 @@ export function PolicyArrows({ snapshot, highlightDiff }: Props) {
   const isQTable = active.type === "q_table";
 
   const getMaxQ = (states: number[]) => {
-    if (!isQTable || !active.q_table) return 0;
-    const vals = states.flatMap((s) => active.q_table![s]);
-    const min = Math.min(...active.q_table!.flat());
-    const max = Math.max(...active.q_table!.flat());
-    const cellMax = Math.max(...vals);
-    return max === min ? 0 : (cellMax - min) / (max - min);
+    if (!isQTable || !active.q_table || !qRange) return 0;
+    let cellMax = -Infinity;
+    for (const s of states) {
+      for (const v of active.q_table[s]) {
+        if (v > cellMax) cellMax = v;
+      }
+    }
+    const range = qRange.max - qRange.min;
+    return range === 0 ? 0 : (cellMax - qRange.min) / range;
   };
 
   return (

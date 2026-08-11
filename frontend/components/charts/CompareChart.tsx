@@ -5,31 +5,56 @@ import {
   ResponsiveContainer, Legend,
 } from "recharts";
 import { useCompareStore } from "@/store/compareStore";
-import { rollingAverage } from "@/lib/smoothing";
+import { stride, MAX_DISPLAY_POINTS } from "@/lib/chart-utils";
+
+// Merged row for the compare chart. We build one array with fields for both
+// runs so a single <LineChart> can render both series on shared axes.
+interface CompareRow {
+  episode: number;
+  a_reward?: number;
+  b_reward?: number;
+  a_rollingAvg?: number;
+  b_rollingAvg?: number;
+  a_td?: number;
+  b_td?: number;
+}
 
 export function CompareChart() {
-  const { runA, runB, activeMetric, setActiveMetric } = useCompareStore();
+  // P2: narrow selectors. The chart used to subscribe to the whole store
+  // (both runs, activeMetric, everything) and rebuild via .map()+rollingAverage
+  // on every batch — twice, once per run. Now we read only what we need and
+  // do zero smoothing on the client (backend already sends rolling avg).
+  const runAChart = useCompareStore((s) => s.runA.chartData);
+  const runBChart = useCompareStore((s) => s.runB.chartData);
+  const runAAlgo = useCompareStore((s) => s.runA.algorithm);
+  const runBAlgo = useCompareStore((s) => s.runB.algorithm);
+  const activeMetric = useCompareStore((s) => s.activeMetric);
+  const setActiveMetric = useCompareStore((s) => s.setActiveMetric);
+
   const [smoothed, setSmoothed] = useState(true);
 
-  const data = useMemo(() => {
-    const maxLen = Math.max(runA.episodeHistory.length, runB.episodeHistory.length);
+  const data = useMemo<CompareRow[]>(() => {
+    const maxLen = Math.max(runAChart.length, runBChart.length);
     if (maxLen === 0) return [];
 
-    const aRewards = runA.episodeHistory.map((e) => e.reward);
-    const bRewards = runB.episodeHistory.map((e) => e.reward);
-    const aSm = rollingAverage(aRewards, 100);
-    const bSm = rollingAverage(bRewards, 100);
+    const merged: CompareRow[] = new Array(maxLen);
+    for (let i = 0; i < maxLen; i++) {
+      const a = runAChart[i];
+      const b = runBChart[i];
+      merged[i] = {
+        episode: (a ?? b)?.episode ?? i + 1,
+        a_reward: a?.reward,
+        b_reward: b?.reward,
+        a_rollingAvg: a?.rollingAvg,
+        b_rollingAvg: b?.rollingAvg,
+        a_td: a?.td_error,
+        b_td: b?.td_error,
+      };
+    }
+    return stride(merged, MAX_DISPLAY_POINTS);
+  }, [runAChart, runBChart]);
 
-    return Array.from({ length: maxLen }, (_, i) => ({
-      episode: (runA.episodeHistory[i] ?? runB.episodeHistory[i])?.episode ?? i + 1,
-      a_reward: smoothed ? (aSm[i] ?? null) : (aRewards[i] ?? null),
-      b_reward: smoothed ? (bSm[i] ?? null) : (bRewards[i] ?? null),
-      a_td: runA.episodeHistory[i]?.extra_metrics?.td_error ?? null,
-      b_td: runB.episodeHistory[i]?.extra_metrics?.td_error ?? null,
-    }));
-  }, [runA.episodeHistory, runB.episodeHistory, smoothed]);
-
-  const isEmpty = runA.episodeHistory.length === 0 && runB.episodeHistory.length === 0;
+  const isEmpty = runAChart.length === 0 && runBChart.length === 0;
 
   if (isEmpty) {
     return (
@@ -38,6 +63,14 @@ export function CompareChart() {
       </div>
     );
   }
+
+  // Which fields to plot depends on both `activeMetric` and `smoothed`.
+  const aKey = activeMetric === "reward"
+    ? (smoothed ? "a_rollingAvg" : "a_reward")
+    : "a_td";
+  const bKey = activeMetric === "reward"
+    ? (smoothed ? "b_rollingAvg" : "b_reward")
+    : "b_td";
 
   return (
     <div className="space-y-2">
@@ -61,21 +94,14 @@ export function CompareChart() {
           <Tooltip contentStyle={{ background: "#111118", border: "1px solid #374151", borderRadius: 8 }}
             labelStyle={{ color: "#e5e7eb" }} />
           <Legend wrapperStyle={{ fontSize: 11, color: "#9ca3af" }} />
-          {activeMetric === "reward" ? (
-            <>
-              <Line type="monotone" dataKey="a_reward" stroke="#6366f1" strokeWidth={2}
-                dot={false} isAnimationActive={false} name={`Run A (${runA.algorithm})`} connectNulls />
-              <Line type="monotone" dataKey="b_reward" stroke="#f59e0b" strokeWidth={2}
-                dot={false} isAnimationActive={false} name={`Run B (${runB.algorithm})`} connectNulls />
-            </>
-          ) : (
-            <>
-              <Line type="monotone" dataKey="a_td" stroke="#6366f1" strokeWidth={2}
-                dot={false} isAnimationActive={false} name={`Run A TD`} connectNulls />
-              <Line type="monotone" dataKey="b_td" stroke="#f59e0b" strokeWidth={2}
-                dot={false} isAnimationActive={false} name={`Run B TD`} connectNulls />
-            </>
-          )}
+          <Line type="monotone" dataKey={aKey} stroke="#6366f1" strokeWidth={2}
+            dot={false} isAnimationActive={false}
+            name={activeMetric === "reward" ? `Run A (${runAAlgo})` : "Run A TD"}
+            connectNulls />
+          <Line type="monotone" dataKey={bKey} stroke="#f59e0b" strokeWidth={2}
+            dot={false} isAnimationActive={false}
+            name={activeMetric === "reward" ? `Run B (${runBAlgo})` : "Run B TD"}
+            connectNulls />
         </LineChart>
       </ResponsiveContainer>
     </div>

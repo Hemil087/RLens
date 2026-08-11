@@ -12,21 +12,25 @@ import {
   Legend,
 } from "recharts";
 import { useTrainingStore } from "@/store/trainingStore";
-import { rollingAverage } from "@/lib/smoothing";
+import { displaySeries } from "@/lib/chart-utils";
 
 export function RewardCurve() {
-  const { episodeHistory, checkpoints, finalStats } = useTrainingStore();
+  // P2: narrow selectors. This component now re-renders when chartData grows
+  // (once per episode batch) OR when checkpointEpisodes / convergence change.
+  // It does NOT re-render on selectedCheckpointIdx changes, algorithm swap,
+  // or any policy-viz interaction.
+  const chartData = useTrainingStore((s) => s.chartData);
+  const checkpointEpisodes = useTrainingStore((s) => s.checkpointEpisodes);
+  const convergenceEpisode = useTrainingStore(
+    (s) => s.finalStats?.convergence_episode ?? null
+  );
+
   const [showSmoothed, setShowSmoothed] = useState(true);
 
-  const data = useMemo(() => {
-    const rewards = episodeHistory.map((e) => e.reward);
-    const smoothed = rollingAverage(rewards, 100);
-    return episodeHistory.map((e, i) => ({
-      episode: e.episode,
-      reward: e.reward,
-      rollingAvg: parseFloat(smoothed[i].toFixed(2)),
-    }));
-  }, [episodeHistory]);
+  // Downsample once per chartData change. useMemo caches until the next batch.
+  // The pre-shaping is already done in the store — no reward smoothing here,
+  // the rollingAvg field comes straight from the backend.
+  const data = useMemo(() => displaySeries(chartData), [chartData]);
 
   if (data.length === 0) {
     return (
@@ -80,17 +84,12 @@ export function RewardCurve() {
               name="Rolling avg (100)"
             />
           )}
-          {checkpoints.map((cp) => (
-            <ReferenceLine
-              key={cp.episode}
-              x={cp.episode}
-              stroke="#374151"
-              strokeDasharray="3 3"
-            />
+          {checkpointEpisodes.map((ep) => (
+            <ReferenceLine key={ep} x={ep} stroke="#374151" strokeDasharray="3 3" />
           ))}
-          {finalStats?.convergence_episode && (
+          {convergenceEpisode !== null && (
             <ReferenceLine
-              x={finalStats.convergence_episode}
+              x={convergenceEpisode}
               stroke="#22c55e"
               strokeDasharray="4 2"
               label={{ value: "Converged", fill: "#22c55e", fontSize: 10 }}

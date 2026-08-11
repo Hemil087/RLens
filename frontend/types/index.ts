@@ -20,10 +20,24 @@ export interface EpisodeUpdate {
 // but without the per-message `type` tag (the batch wrapper carries the type).
 export type EpisodeEntry = Omit<EpisodeUpdate, "type">;
 
-// New P1 protocol: episodes are streamed in batches to reduce WS overhead.
+// P1 protocol: episodes are streamed in batches to reduce WS overhead.
 export interface EpisodeBatch {
   type: "episode_batch";
   episodes: EpisodeEntry[];
+}
+
+// P2: pre-shaped chart-ready row maintained in the store. All charts consume
+// this directly so they never need to `.map()` over `episodeHistory` at render.
+// `rollingAvg` comes straight from the backend's `rolling_avg_reward` field —
+// we do not smooth on the client anymore.
+export interface ChartPoint {
+  episode: number;
+  reward: number;
+  rollingAvg: number;
+  td_error?: number;
+  policy_loss?: number;
+  value_loss?: number;
+  epsilon?: number;
 }
 
 export interface Checkpoint {
