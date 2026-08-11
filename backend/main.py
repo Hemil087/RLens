@@ -1,6 +1,7 @@
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.websockets import WebSocketState
 from models.schemas import ReplayGifRequest, PolicyAnalyzeRequest
 from core.env_wrapper import make_env, decode_state, ACTION_NAMES, N_STATES, N_ACTIONS
 from core.trainer import run_training
@@ -96,7 +97,14 @@ async def ws_train(websocket: WebSocket):
             cancelled_flag[0] = True
 
     try:
-        while True:
+        # Guard: only attempt to receive while the client is still connected.
+        # After a training run finishes, `bench.py` (and normal clients that
+        # close after `training_complete`) will already have disconnected by
+        # the time we loop back here. Without this check, starlette raises
+        # a RuntimeError from receive_json() with the message
+        # "Cannot call 'receive' once a disconnect message has been received"
+        # every time a benchmark or real client hangs up cleanly.
+        while websocket.client_state == WebSocketState.CONNECTED:
             data = await websocket.receive_json()
             if data.get("type") != "start_training":
                 continue
