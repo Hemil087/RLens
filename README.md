@@ -2,7 +2,11 @@
 
 > A research-grade training analysis dashboard for Reinforcement Learning on the Gymnasium `Taxi-v4` environment.
 
-RLens lets you train RL agents, watch their policy evolve in real time, compare algorithms side by side, and replay learned behaviors as GIFs — all from a clean interactive dashboard.
+Train RL agents, watch their policy evolve in real time, compare algorithms side by side, and replay learned behaviors as GIFs — all from a clean interactive dashboard.
+
+<p align="center">
+  <img src="Images/training_demo.gif" alt="Training Demo" width="600">
+</p>
 
 ---
 
@@ -46,31 +50,54 @@ All hyperparameters are configurable from the UI before training starts.
 
 ## Features
 
-**Live Training**
-- Real-time reward curve with raw + smoothed (100-ep rolling average) overlay
-- Algorithm-specific metrics: TD error for tabular methods, policy/value loss for PG methods
-- Epsilon decay chart for Q-Learning and SARSA
-- Episode counter and progress bar
-- Start / Stop training at any time
+### Live Training
 
-**Policy Visualization**
-- Checkpoint timeline — scrub through snapshots at any episode
-- 5×5 PolicyArrows grid — greedy action per cell with intensity background
-- Passenger/destination filter to inspect sub-goal-specific policies
+Real-time reward curves with raw + smoothed (100-episode rolling average) overlay, algorithm-specific metrics, epsilon decay tracking, and full start/stop control.
+
+**Q-Learning** — Off-policy TD control. Converges fast (~500–1000 episodes) but overestimates values early due to the max operator.
+
+<p align="center">
+  <img src="Images/qlearning_training.png" alt="Q-Learning Training" width="600">
+</p>
+
+**SARSA** — On-policy TD control. More conservative, develops a safer policy near penalty states. Converges in ~700–1200 episodes.
+
+<p align="center">
+  <img src="Images/sarsa_training.png" alt="SARSA Training" width="600">
+</p>
+
+### Policy Visualization
+
+Scrub through checkpoints to see the policy evolve. The 5×5 PolicyArrows grid shows the greedy action in each cell, with passenger/destination filters to inspect sub-goal-specific behavior.
+
+<p align="center">
+  <img src="Images/policy_visualization.png" alt="Policy Visualization" width="600">
+</p>
+
+- Checkpoint timeline — drag to any episode
 - State Value Map — `V(s)` / `W(s)` color map for REINFORCE and Actor-Critic
-- Preference heatmap — `θ(s,a)` table visualization for PG methods (mirrors Q-table heatmap)
+- Preference heatmap — `θ(s,a)` table visualization for policy gradient methods
+- Q-Table Heatmap — expandable view of all 500×6 Q-values
 
-**Episode Replay**
-- Select any checkpoint → generate a GIF of the agent playing greedily
-- Uses Gymnasium's native `rgb_array` renderer — the real Taxi-v3 visual
-- GIF loops automatically in the browser
-- Episode stats: total steps and total reward shown alongside the GIF
+### Episode Replay
 
-**Algorithm Comparison**
-- Run two algorithms simultaneously on separate WebSocket connections
-- Overlay reward curves on shared axes (indigo vs amber)
+Select any checkpoint → generate a GIF of the agent playing greedily using Gymnasium's native `rgb_array` renderer. Watch the agent go from random wandering (episode 200) to near-optimal delivery (episode 1500+).
+
+### Algorithm Comparison
+
+Run two algorithms simultaneously on separate WebSocket connections. Overlay reward curves on shared axes to see convergence differences in real time.
+
+<p align="center">
+  <img src="Images/comparison_demo.gif" alt="Comparison Demo" width="600">
+</p>
+
+<p align="center">
+  <img src="Images/algorithm_comparison.png" alt="Algorithm Comparison" width="600">
+</p>
+
 - Side-by-side policy grids at user-selected checkpoints
 - Policy diff view: highlights cells where the two policies disagree
+- Recommended pair: **Q-Learning vs SARSA** — same convergence target, different paths
 
 ---
 
@@ -111,7 +138,7 @@ rlens/
 │   │   ├── reinforce.py         # Tabular REINFORCE — softmax θ(s,a) + baseline W(s)
 │   │   └── actor_critic.py      # Tabular Actor-Critic — θ(s,a) + V(s)
 │   ├── models/
-│   │   └── schemas.py           # Pydantic schemas (policy_net.py removed)
+│   │   └── schemas.py           # Pydantic schemas
 │   └── utils/
 │       ├── math_utils.py        # softmax, all_action_probs
 │       ├── serializers.py
@@ -144,8 +171,8 @@ rlens/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/rlens.git
-cd rlens
+git clone https://github.com/Hemil087/RLens.git
+cd RLens
 ```
 
 ### 2. Start the backend
@@ -233,7 +260,7 @@ Frontend runs at `http://localhost:3000`.
 | REINFORCE | 1000–2000 | MC returns; higher variance, baseline reduces it |
 | Actor-Critic | 500–1500 | Online TD updates; lower variance than REINFORCE |
 
-> All four algorithms are expected to reach avg reward > +4. The reward curves are
+> All four algorithms reach avg reward > +4. The reward curves are
 > meaningfully different (convergence speed, variance) even though the final performance
 > is similar — this is the interesting part to visualize.
 
@@ -263,7 +290,7 @@ Server → { type: "training_complete", convergence_episode: 800, ... }
 
 ## Research Notes
 
-A few behaviors worth looking for across algorithms on Taxi-v3:
+A few behaviors worth looking for across algorithms on Taxi-v4:
 
 - **Q-learning vs SARSA**: Q-learning converges faster but SARSA develops a more cautious
   policy near illegal pickup/dropoff cells. Visible in the PolicyArrows grid.
